@@ -1,0 +1,54 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: education_dw
+      POSTGRES_USER: dbt_user
+      POSTGRES_PASSWORD: dbt_password
+    ports:
+      - "5432:5432"
+    volumes:
+      # - postgres_data:/var/lib/postgresql/data
+      - ./init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dbt_user -d education_dw"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  dbt:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - .:/dbt
+    working_dir: /dbt/DbtEducationalDataProject
+    environment:
+      DBT_PROFILES_DIR: /dbt/DbtEducationalDataProject
+    command: >
+      sh -c "
+        dbt deps &&
+        dbt seed &&
+        dbt run &&
+        dbt docs generate
+      "
+
+  dbt-docs:
+    build:
+      context: ./DbtEducationalDataProject
+      dockerfile: Dockerfile
+    ports:
+      - "8080:80"
+    depends_on:
+      dbt:
+        condition: service_completed_successfully
+    volumes:
+      - .:/dbt
+    working_dir: /usr/app/dbt
+
+volumes:
+  postgres_data:
+  superset_data:

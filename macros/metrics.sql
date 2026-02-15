@@ -1,3 +1,5 @@
+{% macro metrics(model_name, dimensions, metrics) %}
+
 {% if execute %}
 
     {# ── 1. Find the model node in the dbt graph ── #}

@@ -1,0 +1,39 @@
+name: Auto Tag on Commit
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for "NEW TAG" in commit message
+        id: check_msg
+        run: |
+          # Searches for the pattern "NEW TAG vX.X.X" in the latest commit message
+          commit_msg=$(git log -1 --pretty=%B)
+          if [[ $commit_msg =~ NEW\ TAG\ (v[0-9]+\.[0-9]+\.[0-9]+) ]]; then
+            echo "tag=${BASH_REMATCH[1]}" >> $GITHUB_OUTPUT
+            echo "found=true" >> $GITHUB_OUTPUT
+          else
+            echo "found=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create and Push Tag
+        if: steps.check_msg.outputs.found == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          new_tag=${{ steps.check_msg.outputs.tag }}
+          echo "Creating tag $new_tag"
+          
+          git tag $new_tag
+          git push origin $new_tag

@@ -112,6 +112,16 @@ group by {% for i in range(1, dimensions | length + 1) %}{{ i }}{% if not loop.l
     {# Second pass: replace remaining ${column_name} references with bare column names #}
     {%- set ns.result = ns.result | replace('${', '') | replace('}', '') -%}
 
+    {# Third pass: evaluate any [[ macro(...) ]] calls embedded in the expression.
+       [[ ]] is used instead of {{ }} because dbt renders {{ }} in YAML at parse
+       time, before this macro runs. [[ ]] is left as a literal string by the YAML
+       parser, then converted to {{ }} here at execution time when the full macro
+       context is available. #}
+    {%- if '[[' in ns.result -%}
+        {%- set ns.result = ns.result | replace('[[', '{{') | replace(']]', '}}') -%}
+        {%- set ns.result = render(ns.result) | trim -%}
+    {%- endif -%}
+
     {{ return(ns.result) }}
 {% endmacro %}
 

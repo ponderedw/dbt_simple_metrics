@@ -64,6 +64,15 @@ models:
           label: "Student Engagement Score"
           format: "0.0"
           sql: (${avg_attendance} * 0.6 + ${avg_grade_points} * 25)
+        total_passing_students:
+          type: sum
+          label: "Total Passing Students"
+          sql: ${passing_grades}
+        enrollment_pass_rate:
+          type: number
+          label: "Enrollment Pass Rate"
+          format: "0.0%"
+          sql: ${total_passing_students} / nullif(${total_course_enrollments}, 0)
       pre_aggregations:
         # Real-time rollup with SQL refresh key
         course_performance_realtime:

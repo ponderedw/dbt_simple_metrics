@@ -72,7 +72,7 @@ models:
           type: number
           label: "Enrollment Pass Rate"
           format: "0.0%"
-          sql: ${total_passing_students} / nullif(${total_course_enrollments}, 0)
+          sql: "[[ dbt_simple_metrics.safe_divide('${total_passing_students}', '${total_course_enrollments}') ]]"
       pre_aggregations:
         # Real-time rollup with SQL refresh key
         course_performance_realtime:

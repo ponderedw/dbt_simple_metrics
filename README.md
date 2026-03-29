@@ -186,6 +186,22 @@ metrics:
 
 Circular measure references are detected at compile time and raise an error.
 
+**Macro call** — `[[ macro_name(...) ]]` anywhere in the sql field:
+
+`${...}` references are resolved first, then `[[ ]]` delimiters are converted to `{{ }}` and evaluated via dbt's Jinja renderer at execution time. This lets you call any dbt macro with already-resolved column or measure SQL as arguments.
+
+> `[[ ]]` is used instead of `{{ }}` because dbt renders `{{ }}` in YAML values at parse time, before this macro runs, which means `{{ }}` expressions can't reference dbt macros reliably. `[[ ]]` is treated as a plain string by the YAML parser and is only evaluated later when the full macro context is available.
+
+```yaml
+metrics:
+  enrollment_pass_rate:
+    type: number
+    sql: "[[ dbt_simple_metrics.safe_divide('${total_passing_students}', '${total_course_enrollments}') ]]"
+    # resolves to: sum(passing_grades) / nullif(sum(total_enrollments), 0)
+```
+
+The package ships with `dbt_simple_metrics.safe_divide(numerator, denominator)` as a ready-to-use utility. You can also call any macro from your own project or installed packages the same way.
+
 ## Supported Metric Types
 
 All types are compatible with [Cube measure types](https://cube.dev/docs/product/data-modeling/reference/types-and-formats#measure-types).

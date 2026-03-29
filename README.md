@@ -147,22 +147,44 @@ models:
 
 ### Metric `sql` field
 
-The `sql` field uses `${column_name}` syntax to reference columns from the model. These references are resolved to bare column names in the generated SQL.
+The `sql` field uses `${name}` syntax. Each `${name}` is resolved as follows:
 
-Simple column reference:
+- If `name` matches another metric defined in the same model, it is replaced with that metric's fully-wrapped aggregation SQL.
+- Otherwise it is treated as a column name from the model.
+
+**Column reference:**
 ```yaml
 sql: ${total_enrollments}          # becomes: total_enrollments
 ```
 
-Expressions with arithmetic:
+**Arithmetic expression:**
 ```yaml
 sql: ${pass_rate_percentage} / 100 # becomes: pass_rate_percentage / 100
 ```
 
-Multi-column expressions:
+**Multi-column expression:**
 ```yaml
 sql: (${avg_attendance} * 0.6 + ${avg_grade_points} * 25)
 ```
+
+**Measure reference** — `${name}` where `name` is another metric:
+```yaml
+metrics:
+  total_passing_students:
+    type: sum
+    sql: ${passing_grades}          # column reference → sum(passing_grades)
+
+  total_course_enrollments:
+    type: sum
+    sql: ${total_enrollments}       # column reference → sum(total_enrollments)
+
+  enrollment_pass_rate:
+    type: number                    # passthrough — no outer aggregation
+    sql: ${total_passing_students} / nullif(${total_course_enrollments}, 0)
+    # resolves to: sum(passing_grades) / nullif(sum(total_enrollments), 0)
+```
+
+Circular measure references are detected at compile time and raise an error.
 
 ## Supported Metric Types
 

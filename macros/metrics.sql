@@ -54,7 +54,7 @@ select
     {%- endfor %}
     {%- for metric_name in metrics %}
     {%- set metric_def = model_metrics[metric_name] %}
-    {%- set resolved_sql = dbt_simple_metrics._resolve_metric_expression(metric_def.sql) %}
+    {%- set resolved_sql = dbt_simple_metrics._resolve_metric_expression(metric_def.sql, model_metrics) %}
     {{ dbt_simple_metrics._wrap_aggregation(metric_def.type, resolved_sql) }} as {{ metric_name }}{% if not loop.last %},{% endif %}
     {%- endfor %}
 from {{ ref(model_name) }}
@@ -83,11 +83,36 @@ group by {% for i in range(1, dimensions | length + 1) %}{{ i }}{% if not loop.l
 {% endmacro %}
 
 
-{# ── Helper: Resolve ${column_name} references in metric SQL expressions ── #}
+{# ── Helper: Resolve ${...} references in metric SQL expressions ── #}
+{# ${name} is resolved to a measure reference if name matches a metric, otherwise treated as a column. #}
 
-{% macro _resolve_metric_expression(sql_expr) %}
-    {%- set resolved = sql_expr | string | replace('${', '') | replace('}', '') -%}
-    {{ return(resolved) }}
+{% macro _resolve_metric_expression(sql_expr, model_metrics={}, _visited=[]) %}
+    {%- set ns = namespace(result=sql_expr | string) -%}
+
+    {# First pass: replace ${metric_name} with the wrapped aggregation SQL of the referenced metric #}
+    {%- for ref_name, ref_def in model_metrics.items() -%}
+        {%- set placeholder = '${' ~ ref_name ~ '}' -%}
+        {%- if placeholder in ns.result -%}
+            {%- if ref_name in _visited -%}
+                {{ exceptions.raise_compiler_error(
+                    "dbt_simple_metrics: Circular measure reference detected involving '" ~ ref_name ~ "'."
+                ) }}
+            {%- endif -%}
+            {%- set ref_sql = ref_def.sql | default('') -%}
+            {%- set inner_sql = dbt_simple_metrics._resolve_metric_expression(
+                ref_sql,
+                model_metrics,
+                _visited + [ref_name]
+            ) -%}
+            {%- set wrapped = dbt_simple_metrics._wrap_aggregation(ref_def.type, inner_sql) -%}
+            {%- set ns.result = ns.result | replace(placeholder, wrapped) -%}
+        {%- endif -%}
+    {%- endfor -%}
+
+    {# Second pass: replace remaining ${column_name} references with bare column names #}
+    {%- set ns.result = ns.result | replace('${', '') | replace('}', '') -%}
+
+    {{ return(ns.result) }}
 {% endmacro %}
 
 

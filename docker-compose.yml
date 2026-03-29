@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   postgres:
     image: postgres:15
@@ -18,36 +16,36 @@ services:
       timeout: 5s
       retries: 5
 
-  dbt:
-    build: .
-    depends_on:
-      postgres:
-        condition: service_healthy
-    volumes:
-      - .:/dbt
-    working_dir: /dbt/DbtEducationalDataProject
-    environment:
-      DBT_PROFILES_DIR: /dbt/DbtEducationalDataProject
-    command: >
-      sh -c "
-        dbt deps &&
-        dbt seed &&
-        dbt run &&
-        dbt docs generate
-      "
+  # dbt:
+  #   build: .
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #   volumes:
+  #     - .:/dbt
+  #   working_dir: /dbt/DbtEducationalDataProject
+  #   environment:
+  #     DBT_PROFILES_DIR: /dbt/DbtEducationalDataProject
+  #   command: >
+  #     sh -c "
+  #       dbt deps &&
+  #       dbt seed &&
+  #       dbt run &&
+  #       dbt docs generate
+  #     "
 
-  dbt-docs:
-    build:
-      context: ./DbtEducationalDataProject
-      dockerfile: Dockerfile
-    ports:
-      - "8080:80"
-    depends_on:
-      dbt:
-        condition: service_completed_successfully
-    volumes:
-      - .:/dbt
-    working_dir: /usr/app/dbt
+  # dbt-docs:
+  #   build:
+  #     context: ./DbtEducationalDataProject
+  #     dockerfile: Dockerfile
+  #   ports:
+  #     - "8080:80"
+  #   depends_on:
+  #     dbt:
+  #       condition: service_completed_successfully
+  #   volumes:
+  #     - .:/dbt
+  #   working_dir: /usr/app/dbt
 
 volumes:
   postgres_data:

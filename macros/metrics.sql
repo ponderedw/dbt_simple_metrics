@@ -28,10 +28,35 @@
         {%- set src.metrics = mf.metrics -%}
         {%- set src.columns = mf.dimensions -%}
         {%- if src.metrics | length == 0 -%}
-            {{ exceptions.raise_compiler_error(
-                "dbt_simple_metrics: No metrics found for model '" ~ model_name ~ "'. "
-                ~ "Define metrics in config.meta.metrics or in a MetricFlow semantic_model."
-            ) }}
+
+            {# ── Detect dbt 2.0 (Fusion): graph.semantic_models is always empty because
+               MetricFlow data moved to semantic_manifest.json, which is not readable from
+               Jinja macros. In that case give a targeted error. ── #}
+            {%- set ns2 = namespace(is_v2_node=false) -%}
+            {%- for col in ns.model_node.columns.values() -%}
+                {%- if col.get('entity') or col.get('dimension') -%}
+                    {%- set ns2.is_v2_node = true -%}
+                {%- endif -%}
+            {%- endfor -%}
+
+            {%- if ns2.is_v2_node and (graph.semantic_models | default({}) | length == 0) -%}
+                {{ exceptions.raise_compiler_error(
+                    "dbt_simple_metrics: No metrics found for model '" ~ model_name ~ "'. "
+                    ~ "Your model uses the v2 embedded metrics spec but graph.semantic_models is empty. "
+                    ~ "In dbt 2.x (Fusion) this happens when any YAML file in the package contains "
+                    ~ "a top-level 'semantic_models:' section — dbt treats the whole package as "
+                    ~ "legacy and skips populating graph.semantic_models entirely. "
+                    ~ "Fix: migrate all top-level semantic_models:/metrics: YAML to the v2 embedded "
+                    ~ "format (metrics nested under the model definition), "
+                    ~ "OR use the config.meta.metrics format for this model."
+                ) }}
+            {%- else -%}
+                {{ exceptions.raise_compiler_error(
+                    "dbt_simple_metrics: No metrics found for model '" ~ model_name ~ "'. "
+                    ~ "Define metrics in config.meta.metrics or in a MetricFlow semantic_model."
+                ) }}
+            {%- endif -%}
+
         {%- endif -%}
     {%- endif -%}
 

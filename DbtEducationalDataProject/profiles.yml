@@ -18,4 +18,8 @@ DbtEducationalDataProject:
       threads: 8
       type: postgres
       user: dbt_user
+    duckdb:
+      type: duckdb
+      path: /tmp/dbt_edu_test.duckdb
+      threads: 4
   target: container

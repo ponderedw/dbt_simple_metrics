@@ -1,0 +1,75 @@
+version: 2
+
+models:
+  - name: stg_enrollments
+    description: >
+      Student enrollments with grade, attendance, and completion status.
+      One row per student-course-semester enrollment.
+
+    semantic_model:
+      enabled: true
+
+    agg_time_dimension: created_at
+
+    columns:
+      - name: created_at
+        granularity: day
+        dimension:
+          type: time
+
+      - name: enrollment_id
+        entity:
+          type: primary
+
+      - name: student_id
+        entity:
+          type: foreign
+
+      - name: course_id
+        entity:
+          type: foreign
+
+      - name: semester_id
+        entity:
+          type: foreign
+
+      - name: grade_category
+        dimension:
+          type: categorical
+
+      - name: enrollment_status
+        dimension:
+          type: categorical
+
+      - name: attendance_level
+        dimension:
+          type: categorical
+
+    metrics:
+      - name: total_enrollments
+        description: Total number of enrollments.
+        type: simple
+        agg: count
+        expr: enrollment_id
+        fill_nulls_with: 0
+
+      - name: avg_gpa
+        description: Average grade points across enrollments.
+        type: simple
+        agg: average
+        expr: grade_points
+        fill_nulls_with: 0
+
+      - name: passing_enrollments
+        description: Number of enrollments with a passing grade (grade_points >= 2.0).
+        type: simple
+        agg: sum
+        expr: case when grade_points >= 2.0 then 1 else 0 end
+        fill_nulls_with: 0
+
+      - name: excellent_attendance_count
+        description: Enrollments with excellent attendance (>= 95%).
+        type: simple
+        agg: sum
+        expr: case when attendance_percentage >= 95 then 1 else 0 end
+        fill_nulls_with: 0

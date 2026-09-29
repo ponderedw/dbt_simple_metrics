@@ -142,12 +142,12 @@ group by {% for i in range(1, dimensions | length + 1) %}{{ i }}{% if not loop.l
         }) -%}
     {%- endfor -%}
 
-    {# Resolve MetricFlow metrics that can be satisfied by this model's measures.
-       Metrics referencing measures from a different semantic model return '' and
-       are silently skipped. #}
+    {# Resolve MetricFlow metrics that can be satisfied by this model's measures or
+       (v2 spec) by metrics directly embedded in the model.
+       Metrics belonging to a different semantic model return '' and are silently skipped. #}
     {%- for metric_name, metric in all_mf_metrics.items() -%}
         {%- set resolved = dbt_simple_metrics._resolve_mf_metric(
-            metric, all_mf_metrics, measure_by_name, []
+            metric, all_mf_metrics, measure_by_name, [], ns.sm.name
         ) -%}
         {%- if resolved -%}
             {%- do compat_metrics.update({
@@ -183,7 +183,7 @@ group by {% for i in range(1, dimensions | length + 1) %}{{ i }}{% if not loop.l
    Returns '' when the metric cannot be resolved against measure_by_name
    (i.e. its base measure lives in a different semantic model). #}
 
-{% macro _resolve_mf_metric(metric, all_metrics, measure_by_name, visited) %}
+{% macro _resolve_mf_metric(metric, all_metrics, measure_by_name, visited, sm_name='') %}
 
     {%- if metric.name in visited -%}
         {{ exceptions.raise_compiler_error(
@@ -194,18 +194,32 @@ group by {% for i in range(1, dimensions | length + 1) %}{{ i }}{% if not loop.l
     {%- set tp          = metric.get('type_params') or {} -%}
     {%- set metric_type = metric.type | lower -%}
 
-    {# simple / cumulative — wrap the base measure's expr with its aggregation #}
+    {# simple / cumulative #}
     {%- if metric_type in ['simple', 'cumulative'] -%}
-        {%- set measure_ref  = tp.get('measure') -%}
-        {%- set measure_name = (
-            (measure_ref.get('name') if measure_ref is mapping else measure_ref) or ''
-        ) | string -%}
-        {%- set measure = measure_by_name.get(measure_name) -%}
-        {%- if measure -%}
-            {%- set expr = measure.get('expr') or measure_name -%}
-            {{ return(dbt_simple_metrics._wrap_aggregation(measure.agg | default('sum'), expr)) }}
+
+        {# v2 spec: agg + expr live directly on the metric via metric_aggregation_params #}
+        {%- set map = tp.get('metric_aggregation_params') -%}
+        {%- if map is mapping and map.get('agg') -%}
+            {%- if sm_name and (map.get('semantic_model') | string) != sm_name -%}
+                {{ return('') }}
+            {%- else -%}
+                {%- set expr = (tp.get('expr') or '') | string -%}
+                {{ return(dbt_simple_metrics._wrap_aggregation(map.get('agg', 'sum'), expr)) }}
+            {%- endif -%}
+
+        {# v1 spec: resolve via the named measure on the semantic model #}
         {%- else -%}
-            {{ return('') }}
+            {%- set measure_ref  = tp.get('measure') -%}
+            {%- set measure_name = (
+                (measure_ref.get('name') if measure_ref is mapping else measure_ref) or ''
+            ) | string -%}
+            {%- set measure = measure_by_name.get(measure_name) -%}
+            {%- if measure -%}
+                {%- set expr = measure.get('expr') or measure_name -%}
+                {{ return(dbt_simple_metrics._wrap_aggregation(measure.agg | default('sum'), expr)) }}
+            {%- else -%}
+                {{ return('') }}
+            {%- endif -%}
         {%- endif -%}
 
     {# ratio — numerator / NULLIF(denominator, 0); both sides are metric names #}
@@ -221,8 +235,8 @@ group by {% for i in range(1, dimensions | length + 1) %}{{ i }}{% if not loop.l
         {%- set num_metric = all_metrics.get(num_name) -%}
         {%- set den_metric = all_metrics.get(den_name) -%}
         {%- if num_metric and den_metric -%}
-            {%- set num_sql = dbt_simple_metrics._resolve_mf_metric(num_metric, all_metrics, measure_by_name, visited) -%}
-            {%- set den_sql = dbt_simple_metrics._resolve_mf_metric(den_metric, all_metrics, measure_by_name, visited) -%}
+            {%- set num_sql = dbt_simple_metrics._resolve_mf_metric(num_metric, all_metrics, measure_by_name, visited, sm_name) -%}
+            {%- set den_sql = dbt_simple_metrics._resolve_mf_metric(den_metric, all_metrics, measure_by_name, visited, sm_name) -%}
             {%- if num_sql and den_sql -%}
                 {{ return(num_sql ~ ' / NULLIF(' ~ den_sql ~ ', 0)') }}
             {%- else -%}
@@ -242,7 +256,7 @@ group by {% for i in range(1, dimensions | length + 1) %}{{ i }}{% if not loop.l
             {%- set ref_metric = all_metrics.get(ref_name) -%}
             {%- if ref_metric -%}
                 {%- set ref_sql = dbt_simple_metrics._resolve_mf_metric(
-                    ref_metric, all_metrics, measure_by_name, visited
+                    ref_metric, all_metrics, measure_by_name, visited, sm_name
                 ) -%}
                 {%- if ref_sql -%}
                     {%- set ns.result = ns.result | replace(ref_name, '(' ~ ref_sql ~ ')') -%}

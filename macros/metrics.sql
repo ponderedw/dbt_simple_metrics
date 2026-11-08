@@ -215,6 +215,36 @@ group by {% for i in range(1, dimensions | length + 1) %}{{ i }}{% if not loop.l
 {% endmacro %}
 
 
+{# Parse native MetricFlow where_filters into a plain SQL condition.
+   Converts {{ Dimension('entity__col') }} → col
+   Multiple where_filters are joined with AND. #}
+
+{% macro _parse_dimension_filter(where_filters) %}
+    {%- if not where_filters -%}{{ return('') }}{%- endif -%}
+    {%- set ns = namespace(parts=[]) -%}
+    {%- for wf in (where_filters or []) -%}
+        {# Use attribute access with default — dbt graph objects may not support .get() #}
+        {%- set tmpl = (wf.where_sql_template | default('')) | string -%}
+        {%- if not tmpl or tmpl == 'None' -%}
+            {%- set tmpl = (wf['where_sql_template'] | default('')) | string -%}
+        {%- endif -%}
+        {%- if tmpl and tmpl != 'None' -%}
+            {%- set chunks = tmpl.split("{{ Dimension('") -%}
+            {%- set ns_s = namespace(sql=chunks[0]) -%}
+            {%- for chunk in chunks[1:] -%}
+                {%- set dim_and_rest = chunk.split("') }}") -%}
+                {%- set dim_full  = dim_and_rest[0] -%}
+                {%- set dim_name  = dim_full.split('__') | last -%}
+                {%- set remainder = dim_and_rest[1] if dim_and_rest | length > 1 else '' -%}
+                {%- set ns_s.sql = ns_s.sql ~ dim_name ~ remainder -%}
+            {%- endfor -%}
+            {%- set ns.parts = ns.parts + [ns_s.sql | trim] -%}
+        {%- endif -%}
+    {%- endfor -%}
+    {{ return(ns.parts | join(' and ')) }}
+{% endmacro %}
+
+
 {# Recursively resolve a single MetricFlow metric to a plain SQL string with
    aggregation functions already embedded.
    Returns '' when the metric cannot be resolved against measure_by_name
@@ -240,8 +270,20 @@ group by {% for i in range(1, dimensions | length + 1) %}{{ i }}{% if not loop.l
             {%- if sm_name and (map.get('semantic_model') | string) != sm_name -%}
                 {{ return('') }}
             {%- else -%}
-                {%- set expr = (tp.get('expr') or '') | string -%}
-                {{ return(dbt_simple_metrics._wrap_aggregation(map.get('agg', 'sum'), expr)) }}
+                {%- set ns_f = namespace(expr=(tp.get('expr') or '') | string) -%}
+                {%- set filter_obj    = metric.filter | default(none) -%}
+                {%- if filter_obj is none -%}
+                    {%- set filter_obj = metric.get('filter') | default(none) -%}
+                {%- endif -%}
+                {%- set where_filters = (filter_obj.where_filters | default([])) if filter_obj else [] -%}
+                {%- if not where_filters and filter_obj is mapping -%}
+                    {%- set where_filters = filter_obj.get('where_filters', []) -%}
+                {%- endif -%}
+                {%- set sql_filter    = dbt_simple_metrics._parse_dimension_filter(where_filters) | trim -%}
+                {%- if sql_filter -%}
+                    {%- set ns_f.expr = 'case when ' ~ sql_filter ~ ' then ' ~ ns_f.expr ~ ' end' -%}
+                {%- endif -%}
+                {{ return(dbt_simple_metrics._wrap_aggregation(map.get('agg', 'sum'), ns_f.expr)) }}
             {%- endif -%}
 
         {# v1 spec: resolve via the named measure on the semantic model #}
@@ -373,7 +415,11 @@ group by {% for i in range(1, dimensions | length + 1) %}{{ i }}{% if not loop.l
     {%- elif type_lower == 'max' -%}
         {{ return('max(' ~ expression ~ ')') }}
     {%- elif type_lower == 'count' -%}
-        {{ return('count(*)') }}
+        {%- if not expression or expression in ['1', '*'] -%}
+            {{ return('count(*)') }}
+        {%- else -%}
+            {{ return('count(' ~ expression ~ ')') }}
+        {%- endif -%}
     {%- elif type_lower == 'count_distinct' -%}
         {{ return('count(distinct ' ~ expression ~ ')') }}
     {%- elif type_lower == 'count_distinct_approx' -%}

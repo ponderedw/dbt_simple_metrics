@@ -90,6 +90,7 @@ semantic_models:
         expr: passing_grades
         agg_time_dimension: semester_start_date
 
+
   - name: semantic_semester_enrollment
     model: ref('semester_enrollment_trends')
     entities:

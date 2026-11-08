@@ -424,6 +424,134 @@ Available metrics: average_course_gpa, course_pass_rate, ...
 dbt_simple_metrics: Model 'my_model' has no metrics defined in config.meta.metrics.
 ```
 
+## dbt v2 Native MetricFlow Format
+
+dbt 1.6+ supports defining metrics and semantic models directly inline on a model, without `config.meta.metrics`. Both macros (`metrics` and `join_metrics`) support this format.
+
+### Field placement rules
+
+| Field | Where it goes | Reason |
+|---|---|---|
+| `label` on a **metric** | directly on the metric | native dbt MetricFlow field — compiled into the manifest |
+| `label` on a **column** | `config.meta.label` | dbt does not support `label` as a native column field — raises a deprecation warning if placed directly |
+| `description` | directly on metric or column | native dbt field |
+| `format` | `config.meta.format` | custom field read by dbt-cube-sync, not a native dbt field |
+| `filter` | `config.meta.filter` | custom field read by dbt-cube-sync, not a native dbt field |
+
+```yaml
+# Metrics — label goes directly on the metric
+metrics:
+  - name: total_revenue
+    label: "Total Revenue (USD)"        # ← direct field on metric (valid)
+    description: "Sum of all orders"
+    type: simple
+    agg: sum
+    expr: order_amount
+    config:
+      meta:
+        format: "currency"              # ← config.meta only
+
+  - name: us_orders
+    label: "US Orders"                  # ← direct field on metric (valid)
+    description: "Orders from the US only"
+    type: simple
+    agg: count
+    expr: 1
+    config:
+      meta:
+        filter: "${CUBE}.country = 'US'"  # ← config.meta only
+
+# Columns — label must go under config.meta
+columns:
+  - name: customer_segment
+    description: "Business segment"
+    dimension:
+      type: categorical
+    config:
+      meta:
+        label: "Customer Segment"       # ← config.meta (direct label on column raises deprecation warning)
+```
+
+Metrics with only a `label` and no `format`/`filter` need no `config.meta` block at all.
+
+### Entities: primary and foreign keys
+
+Entities are defined inline on columns using the `entity:` key. The `name` is the logical entity name used for join detection — it does not have to match the column name.
+
+```yaml
+models:
+  - name: orders
+    columns:
+      - name: order_id
+        entity:
+          type: primary
+          name: order         # logical entity name
+
+      - name: customer_id
+        entity:
+          type: foreign
+          name: customer      # matches customers.customer_id's primary entity
+
+      - name: product_id
+        entity:
+          type: foreign
+          name: product
+
+  - name: customers
+    columns:
+      - name: customer_id
+        entity:
+          type: primary
+          name: customer      # shared name 'customer' triggers the join
+```
+
+Entity types determine the join cardinality when using `join_metrics`:
+
+| Left type | Right type | Relationship |
+|---|---|---|
+| `foreign` | `primary` / `unique` | `many_to_one` |
+| `primary` / `unique` | `foreign` | `one_to_many` |
+| `primary` / `unique` | `primary` / `unique` | `one_to_one` |
+| `foreign` | `foreign` | error — `many_to_many` unsupported |
+
+### Supported `format` values
+
+| Value | Effect in Cube |
+|---|---|
+| `"currency"` | Renders as `$1,234.56` |
+| `"percent"` | Renders as `12.3%` |
+
+### Metric types in native format
+
+```yaml
+# Simple (single-model aggregation)
+- name: total_orders
+  type: simple
+  agg: count      # sum | count | count_distinct | avg | min | max
+  expr: 1
+
+# Ratio (numerator / denominator, both must be defined metrics)
+- name: return_rate
+  type: ratio
+  numerator: returned_orders
+  denominator: total_orders
+
+# Derived (expression over other metrics)
+- name: revenue_per_customer
+  type: derived
+  expr: total_revenue / unique_customers
+  input_metrics:
+    - name: total_revenue
+    - name: unique_customers
+
+# Cumulative (running total over the agg_time_dimension)
+- name: cumulative_revenue
+  type: cumulative
+  input_metric: total_revenue
+```
+
+---
+
 ## How It Works
 
 Both macros use dbt's `graph` context variable (available during execution):

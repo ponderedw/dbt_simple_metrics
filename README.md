@@ -91,6 +91,122 @@ group by 1, 2, 3
 
 ## Macro Reference
 
+### `dbt_simple_metrics.join_metrics(models, filters=[])`
+
+Cross-model metric query with automatic join inference. Select metrics and dimensions from multiple models — if the semantic models share an entity name, the join is generated automatically. If not, a compile-time error tells you exactly which entities are available on each side.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `models` | `list[dict]` | Each dict: `name` (model), `metrics` (list), `dimensions` (list) |
+| `filters` | `list[string]` | Optional WHERE clauses on the outer query |
+
+**Example:**
+
+```sql
+-- models/marts/academic/joined_metrics_example.sql
+{{ config(materialized='table') }}
+
+{{ dbt_simple_metrics.join_metrics([
+    {
+        'name': 'course_performance_summary',
+        'metrics': ['total_course_enrollments', 'average_course_gpa'],
+        'dimensions': ['department_name']
+    },
+    {
+        'name': 'semester_enrollment_trends',
+        'dimensions': ['semester_name', 'semester_type']
+    }
+]) }}
+```
+
+Generated SQL:
+
+```sql
+with
+a as (
+    select
+        semester_id,
+        department_name,
+        sum(total_enrollments) as total_course_enrollments,
+        avg(avg_grade_points) as average_course_gpa
+    from "education_dw"."public"."course_performance_summary"
+    group by 1, 2
+),
+b as (
+    select
+        semester_id,
+        semester_name,
+        semester_type
+    from "education_dw"."public"."semester_enrollment_trends"
+    group by 1, 2, 3
+)
+select
+    a.department_name,
+    a.total_course_enrollments,
+    a.average_course_gpa,
+    b.semester_name,
+    b.semester_type
+from a
+join b on a.semester_id = b.semester_id
+```
+
+The macro uses one CTE per model that pre-aggregates within that model's scope, then joins the CTEs. This eliminates column ambiguity and ensures metrics are computed on the correct grain before joining.
+
+**How joins are inferred:**
+
+A join is created between two consecutive models when their semantic model definitions share an entity name. The relationship type is determined by the entity `type` on each side:
+
+| Left entity type | Right entity type | Relationship |
+|-----------------|------------------|--------------|
+| `foreign` | `primary` / `unique` | `many_to_one` |
+| `primary` / `unique` | `foreign` | `one_to_many` |
+| `primary` / `unique` | `primary` / `unique` | `one_to_one` |
+| `foreign` | `foreign` | error — `many_to_many` unsupported |
+
+```yaml
+# semantic_models.yml — the shared entity name drives join detection
+semantic_models:
+  - name: semantic_course_performance
+    model: ref('course_performance_summary')
+    entities:
+      - name: course_id
+        type: primary
+      - name: semester_id      # ← foreign key; matches semantic_semester_enrollment's primary
+        type: foreign
+
+  - name: semantic_semester_enrollment
+    model: ref('semester_enrollment_trends')
+    entities:
+      - name: semester_id      # ← primary key; shared name triggers join
+        type: primary
+```
+
+**When no join is defined:**
+
+```
+Compilation Error
+  join_metrics: No join defined between 'course_performance_summary' and 'student_grades'.
+    Entities in 'course_performance_summary': [course_id, semester_id]
+    Entities in 'student_grades': [student_id, section_id]
+    Hint: a join exists when both semantic models share an entity name.
+    Add a matching entity (e.g. foreign key) to one of the semantic models.
+```
+
+**Many-to-many (not supported):**
+
+Both `foreign → foreign` joins cannot be expressed as a direct SQL `JOIN` without fan-out. The macro raises a compile-time error and tells you to introduce a bridge/junction model.
+
+**Optional filters:**
+
+```sql
+{{ dbt_simple_metrics.join_metrics([
+    {'name': 'course_performance_summary', 'metrics': ['total_course_enrollments'], 'dimensions': ['department_name']},
+    {'name': 'semester_enrollment_trends', 'dimensions': ['semester_name']}
+], filters=["b.semester_type = 'Fall'"]) }}
+```
+
+---
+
 ### `dbt_simple_metrics.metrics(model_name, dimensions, metrics)`
 
 | Parameter    | Type           | Description                                          |
@@ -310,12 +426,23 @@ dbt_simple_metrics: Model 'my_model' has no metrics defined in config.meta.metri
 
 ## How It Works
 
-The macro uses dbt's `graph` context variable (available during execution) to look up the target model's YAML metadata:
+Both macros use dbt's `graph` context variable (available during execution):
+
+### `metrics` (single model)
 
 1. Finds the model node in `graph.nodes` by name
 2. Reads `columns` for dimension validation
-3. Reads `config.meta.metrics` for metric definitions
+3. Reads `config.meta.metrics` for metric definitions (falls back to MetricFlow `graph.semantic_models` / `graph.metrics` if `config.meta.metrics` is empty)
 4. Validates all requested dimensions and metrics exist
 5. Generates a `SELECT` with proper aggregation functions and `GROUP BY`
 
-During the DAG resolution phase (`execute=False`), a stub query with `ref()` is returned so dbt can correctly resolve model dependencies.
+### `join_metrics` (multiple models)
+
+1. For each model, locates its MetricFlow semantic model in `graph.semantic_models`
+2. Reads the `entities:` list from each semantic model to build a join key index
+3. Checks consecutive model pairs for a shared entity name — that shared name becomes the `ON` condition
+4. Infers cardinality (`many_to_one`, `one_to_one`, etc.) from the entity `type` on each side
+5. Generates one CTE per model that pre-aggregates metrics within that model's own scope
+6. Joins the CTEs in the outer `SELECT`
+
+During the DAG resolution phase (`execute=False`), a stub query with `ref()` calls for all models is returned so dbt can correctly resolve dependencies.

@@ -4,7 +4,13 @@ semantic_models:
 
   - name: semantic_course_performance
     model: ref('course_performance_summary')
-    primary_entity: course_id
+    entities:
+      - name: course_id
+        type: primary
+        label: "Course ID"
+      - name: semester_id
+        type: foreign
+        label: "Semester ID"
     dimensions:
       - name: course_code
         type: categorical
@@ -86,7 +92,10 @@ semantic_models:
 
   - name: semantic_semester_enrollment
     model: ref('semester_enrollment_trends')
-    primary_entity: semester_id
+    entities:
+      - name: semester_id
+        type: primary
+        label: "Semester ID"
     dimensions:
       - name: semester_name
         type: categorical

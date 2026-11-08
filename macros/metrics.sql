@@ -1,4 +1,4 @@
-{% macro metrics(model_name, dimensions, metrics) %}
+{% macro metrics(model_name, dimensions, metrics, filters=[]) %}
 
 {% if execute %}
 
@@ -91,6 +91,12 @@ select
     {{ dbt_simple_metrics._wrap_aggregation(metric_def.type, resolved_sql) }} as {{ metric_name }}{% if not loop.last %},{% endif %}
     {%- endfor %}
 from {{ ref(model_name) }}
+    {%- if filters | length > 0 %}
+where
+    {%- for f in filters %}
+    {{ f }}{% if not loop.last %} and{% endif %}
+    {%- endfor %}
+    {%- endif %}
     {%- if dimensions | length > 0 %}
 group by {% for i in range(1, dimensions | length + 1) %}{{ i }}{% if not loop.last %}, {% endif %}{% endfor %}
     {%- endif %}
@@ -106,6 +112,12 @@ select
     cast(null as numeric) as {{ metric_name }}{% if not loop.last %},{% endif %}
     {%- endfor %}
 from {{ ref(model_name) }}
+    {%- if filters | length > 0 %}
+where
+    {%- for f in filters %}
+    {{ f }}{% if not loop.last %} and{% endif %}
+    {%- endfor %}
+    {%- endif %}
     {%- if dimensions | length > 0 %}
 group by {% for i in range(1, dimensions | length + 1) %}{{ i }}{% if not loop.last %}, {% endif %}{% endfor %}
     {%- endif %}
@@ -350,6 +362,7 @@ group by {% for i in range(1, dimensions | length + 1) %}{{ i }}{% if not loop.l
 
 {% macro _wrap_aggregation(metric_type, expression) %}
     {%- set type_lower = metric_type | lower | trim -%}
+    {%- set expression = expression | replace('\n', ' ') | replace('\r', '') | trim -%}
 
     {%- if type_lower == 'sum' -%}
         {{ return('sum(' ~ expression ~ ')') }}

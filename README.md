@@ -10,17 +10,26 @@ Add to your project's `packages.yml`:
 
 ```yaml
 packages:
-  - local: ..            # local path
-  # or from git:
-  # - git: "https://github.com/ponderedw/dbt_simple_metrics.git"
-  #   revision: main
+  - git: "https://github.com/ponderedw/dbt_simple_metrics.git"
+    revision: v1.0.9
 ```
 
 Then run:
 
 ```bash
-dbt deps
+dbt deps   # or: dbtf deps
 ```
+
+### dbt version compatibility
+
+| dbt version | Format 1 `config.meta.metrics` | Format 3 inline MetricFlow |
+|-------------|-------------------------------|---------------------------|
+| dbt 1.x | Yes | Yes (1.9+) |
+| dbt-fusion 2.x | Yes | Yes (v1.0.9+) |
+
+**dbt-fusion note:** both macros work with inline Format 3 (v1.0.9+). They will not
+work if any YAML in the project retains a top-level `semantic_models:` block — migrate
+those to inline Format 3.
 
 ## Quick Start
 
@@ -551,6 +560,17 @@ Entity types determine the join cardinality when using `join_metrics`:
 ```
 
 ---
+
+## dbt-fusion 2.x compatibility
+
+**v1.0.9** fixes Format 3 inline metrics under dbt-fusion 2.x. dbt-fusion renamed
+`metric.type` → `metric.metric_type` in the Jinja graph context. All earlier versions
+silently ignored this, causing filtered metrics (e.g. `us_orders` with
+`filter: "{{ Dimension('order__country') }} = 'US'"`) to compile as bare `count(*)`
+instead of `count(case when country = 'US' then 1 end)`.
+
+The fix is backward compatible — `metric.type` is checked first, `metric.metric_type`
+is the fallback.
 
 ## How It Works
 

@@ -29,9 +29,11 @@
         {%- set src.columns = mf.dimensions -%}
         {%- if src.metrics | length == 0 -%}
 
-            {# ── Detect dbt 2.0 (Fusion): graph.semantic_models is always empty because
-               MetricFlow data moved to semantic_manifest.json, which is not readable from
-               Jinja macros. In that case give a targeted error. ── #}
+            {# ── Detect when v2 column annotations are present but no metrics resolved.
+               Under dbt-fusion 2.x this can still happen if any YAML in the project
+               retains a top-level 'semantic_models:' block (the old Format 2), which
+               causes dbt-fusion to skip graph.semantic_models for the whole package.
+               Fix: migrate all top-level semantic_models: blocks to inline Format 3. ── #}
             {%- set ns2 = namespace(is_v2_node=false) -%}
             {%- for col in ns.model_node.columns.values() -%}
                 {%- if col.get('entity') or col.get('dimension') -%}
@@ -43,9 +45,9 @@
                 {{ exceptions.raise_compiler_error(
                     "dbt_simple_metrics: No metrics found for model '" ~ model_name ~ "'. "
                     ~ "Your model uses the v2 embedded metrics spec but graph.semantic_models is empty. "
-                    ~ "In dbt 2.x (Fusion) this happens when any YAML file in the package contains "
-                    ~ "a top-level 'semantic_models:' section — dbt treats the whole package as "
-                    ~ "legacy and skips populating graph.semantic_models entirely. "
+                    ~ "This usually means another YAML file in the project still has a top-level "
+                    ~ "'semantic_models:' section (Format 2). Under dbt-fusion this causes the whole "
+                    ~ "package to skip graph.semantic_models. "
                     ~ "Fix: migrate all top-level semantic_models:/metrics: YAML to the v2 embedded "
                     ~ "format (metrics nested under the model definition), "
                     ~ "OR use the config.meta.metrics format for this model."

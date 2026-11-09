@@ -156,10 +156,12 @@ group by {% for i in range(1, dimensions | length + 1) %}{{ i }}{% if not loop.l
         {%- do measure_by_name.update({measure.name: measure}) -%}
     {%- endfor -%}
 
-    {# Collect MetricFlow metrics from the graph (skip old-style dbt metric types) #}
+    {# Collect MetricFlow metrics from the graph (skip old-style dbt metric types).
+       dbt-fusion renamed `type` → `metric_type`; support both. #}
     {%- set all_mf_metrics = {} -%}
     {%- for metric_id, metric in (graph.metrics | default({})).items() -%}
-        {%- if metric.type in ['simple', 'derived', 'ratio', 'cumulative'] -%}
+        {%- set _mtype = (metric.type | default(metric.metric_type | default(''))) | lower -%}
+        {%- if _mtype in ['simple', 'derived', 'ratio', 'cumulative'] -%}
             {%- do all_mf_metrics.update({metric.name: metric}) -%}
         {%- endif -%}
     {%- endfor -%}
@@ -259,7 +261,7 @@ group by {% for i in range(1, dimensions | length + 1) %}{{ i }}{% if not loop.l
     {%- endif -%}
     {%- set visited     = visited + [metric.name] -%}
     {%- set tp          = metric.get('type_params') or {} -%}
-    {%- set metric_type = metric.type | lower -%}
+    {%- set metric_type = (metric.type | default(metric.metric_type | default(''))) | lower -%}
 
     {# simple / cumulative #}
     {%- if metric_type in ['simple', 'cumulative'] -%}

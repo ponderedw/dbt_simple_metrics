@@ -1,0 +1,11 @@
+{
+  "name": "dbt-simple-metrics",
+  "owner": { "name": "Ponder" },
+  "plugins": [
+    {
+      "name": "dbt-simple-metrics",
+      "source": "./claude",
+      "description": "Skills for dbt_simple_metrics: reuse metric definitions inside dbt SQL models with automatic join inference"
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+{
+  "name": "dbt-simple-metrics",
+  "version": "1.0.9",
+  "description": "Skills for using dbt_simple_metrics macros to reuse metric definitions inside dbt models"
+}

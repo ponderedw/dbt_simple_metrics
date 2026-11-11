@@ -85,7 +85,79 @@ If no shared entity exists, the macro raises an error naming the entities availa
 
 ## Defining metrics in YAML
 
-Metrics live under `config.meta.metrics` in the model's schema YAML. Each key is the metric name.
+**Default: use Format 3 (inline MetricFlow, dbt 1.9+ / dbt-fusion 2.x).** Use `config.meta.metrics` (Format 1) only when the project is on an older dbt version or has not adopted inline MetricFlow.
+
+### Format 3 — inline MetricFlow (preferred)
+
+Metrics are listed directly under `metrics:` on the model. Columns carry their `entity:` or `dimension:` roles.
+
+```yaml
+models:
+  - name: orders
+    description: "One row per order."
+
+    semantic_model:
+      enabled: true
+
+    agg_time_dimension: created_at
+
+    columns:
+      - name: order_id
+        entity:
+          type: primary
+        config:
+          meta:
+            primary-key: true
+
+      - name: customer_id
+        entity:
+          type: foreign
+
+      - name: created_at
+        granularity: day
+        dimension:
+          type: time
+
+      - name: region
+        description: "Sales region."
+        dimension:
+          type: categorical
+        config:
+          meta:
+            label: "Region"
+
+      - name: order_amount
+        description: "Order total in USD."
+
+    metrics:
+      - name: total_revenue
+        label: "Total Revenue"
+        description: "Sum of all order amounts."
+        type: simple
+        agg: sum
+        expr: order_amount
+
+      - name: order_count
+        label: "Order Count"
+        description: "Number of orders."
+        type: simple
+        agg: count
+        expr: order_id
+
+      - name: return_rate
+        label: "Return Rate"
+        description: "Returned orders as a share of total orders."
+        type: ratio
+        numerator: returned_orders
+        denominator: order_count
+        config:
+          meta:
+            format: "percent"
+```
+
+### Format 1 — `config.meta.metrics` (legacy / older dbt versions)
+
+Metrics live under `config.meta.metrics`. Each key is the metric name.
 
 ```yaml
 models:
@@ -95,8 +167,6 @@ models:
         description: "Sales region."
       - name: order_amount
         description: "Order total in USD."
-      - name: is_returned
-        description: "1 if the order was returned."
 
     config:
       meta:
@@ -117,7 +187,6 @@ models:
             label: "Return Rate"
             description: "Returned orders divided by total orders."
             sql: ${returned_orders} / nullif(${order_count}, 0)
-            # ${returned_orders} and ${order_count} reference other metrics above
 ```
 
 **`sql` field resolution:**
